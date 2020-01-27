@@ -16,7 +16,7 @@ infix operator ~~
 extension CGFloat {
     
     static func ~~ (lhs: CGFloat, rhs: CGFloat) -> Bool {
-
+        
         return abs(lhs - rhs) < 0.5
     }
 }
@@ -44,6 +44,7 @@ class ViewController: UIViewController {
     private lazy var vision = Vision.vision()
     private var lastFrame: CMSampleBuffer?
     private var captureDevice: AVCaptureDevice!
+    var tableView: UIView?
     
     private lazy var previewOverlayView: UIImageView = {
         precondition(isViewLoaded)
@@ -103,6 +104,7 @@ class ViewController: UIViewController {
         let textRecognizer = vision.onDeviceTextRecognizer()
         textRecognizer.process(image) { text, error in
             self.removeDetectionAnnotations()
+            self.tableView?.removeFromSuperview()
             guard error == nil, let text = text else {
                 return
             }
@@ -126,7 +128,7 @@ class ViewController: UIViewController {
             var averageSum = lines
                 .map { element in
                     element.frame.width
-                }.reduce(0, +)
+            }.reduce(0, +)
             
             averageSum = averageSum / CGFloat(lines.count)
             
@@ -141,7 +143,6 @@ class ViewController: UIViewController {
                 if !line.text.isEmpty, String(line.text.first!).rangeOfCharacter(from: CharacterSet.decimalDigits) != nil && lines.filter({
                     let almostEqual = $0.row ~~ line.row
                     if almostEqual && $0.isExcluded == false && $0.text != line.text {
-                        print($0.row, $0.text, line.row, line.text)
                         return true
                     }
                     return false
@@ -151,8 +152,8 @@ class ViewController: UIViewController {
             }
             
             for line in lines where !line.isExcluded {
-                 let points = self.convertedPoints(from: line.cornerPoints, width: width, height: height)
-                 UIUtilities.addShape(withPoints: points, to: self.view, color: .green)
+                let points = self.convertedPoints(from: line.cornerPoints, width: width, height: height)
+                UIUtilities.addShape(withPoints: points, to: self.view, color: .green)
             }
             
             lines
@@ -165,19 +166,20 @@ class ViewController: UIViewController {
                         width: element.frame.size.width / width,
                         height: element.frame.size.height / height
                     )
-
+                    
                     let convertedRect = self.previewLayer.layerRectConverted(
                         fromMetadataOutputRect: normalizedRect
                     )
-
+                    
                     let label = UILabel(frame: convertedRect)
                     label.text = element.text
                     label.font = .systemFont(ofSize: 14, weight: .regular)
                     label.adjustsFontSizeToFitWidth = true
                     label.restorationIdentifier = "detectedText"
                     self.view.addSubview(label)
-                }
-
+            }
+            
+            self.createTableView(with: lines.filter({ !$0.isExcluded }))
         }
     }
     
@@ -305,6 +307,62 @@ class ViewController: UIViewController {
                 // Handle errors here
                 print("There was an error focusing the device's camera")
             }
+        }
+    }
+    
+    func createTableView(with detectedLines: [Line]) {
+        guard detectedLines.count != 0 else { return }
+        tableView = UIView()
+        let stackView = UIStackView()
+        stackView.distribution = .fillEqually
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .vertical
+        tableView?.backgroundColor = .black
+        tableView?.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(tableView!)
+        tableView?.addSubview(stackView)
+        
+        NSLayoutConstraint.activate([
+            tableView!.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            tableView!.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView!.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor)
+        ])
+        
+        NSLayoutConstraint.activate([
+            stackView.topAnchor.constraint(equalTo: tableView!.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: tableView!.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: tableView!.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: tableView!.bottomAnchor)
+        ])
+        
+        
+        let rows = detectedLines.map { $0.row }
+        var groupedLines = [CGFloat: [String]]()
+        
+        for row in rows {
+            for line in detectedLines {
+                let isAlmostEqual = line.row ~~ row
+                if isAlmostEqual && groupedLines.values.flatMap({ $0 }).contains(line.text) == false {
+                    if groupedLines[row] == nil {
+                        groupedLines[row] = [line.text]
+                    } else {
+                        groupedLines[row]?.append(line.text)
+                    }
+                }
+            }
+        }
+        
+        for (_, texts) in groupedLines.sorted(by: { $0.key < $1.key }) {
+            let horizontalStackView = UIStackView()
+            horizontalStackView.spacing = 8
+            horizontalStackView.distribution = .fillEqually
+            for text in texts {
+                let label = UILabel()
+                label.textColor = .white
+                label.text = text
+                horizontalStackView.addArrangedSubview(label)
+            }
+            stackView.addArrangedSubview(horizontalStackView)
         }
     }
 }
